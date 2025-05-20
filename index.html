@@ -619,7 +619,9 @@
                                                     e('a', {
                                                         href: `https://iknowwhatyoudownload.com/en/peer/?ip=${peer.ip}`,
                                                         target: '_blank',
-                                                        rel: 'noopener noreferrer'
+                                                        rel: 'noopener noreferrer',
+                                                        className: 'underline',
+                                                        title: 'View download history for this IP'
                                                     }, peer.ip)
                                                 ),
                                                 e('td', {}, peer.port),
