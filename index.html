@@ -22,6 +22,16 @@
     <div class="container mt-5">
         <h1 class="mb-4">Torrent Peer Tracker</h1>
         
+        <div class="row mb-3">
+            <div class="col-md-12">
+                <label for="torrentFile" class="form-label">torrent 파일에서 Info Hash 추출:</label>
+                <div class="input-group">
+                    <input class="form-control" type="file" id="torrentFile" accept=".torrent">
+                </div>
+                 <span id="selectedFileNameInfo" class="form-text"></span>
+            </div>
+        </div>
+
         <div class="row">
             <div class="col-md-6">
                 <div class="input-group mb-3">
@@ -154,6 +164,149 @@
             } finally {
                 document.getElementById('loading').style.display = 'none';
             }
+        }
+
+        document.getElementById('torrentFile').addEventListener('change', handleTorrentFileSelect, false);
+
+        async function handleTorrentFileSelect(event) {
+            const file = event.target.files[0];
+            const selectedFileNameInfoSpan = document.getElementById('selectedFileNameInfo');
+
+            if (!file) {
+                selectedFileNameInfoSpan.textContent = '선택된 파일 없음';
+                document.getElementById('infoHash').value = ''; // 파일 선택 취소 시 InfoHash 필드도 초기화
+                return;
+            }
+
+            selectedFileNameInfoSpan.textContent = `처리 중: ${file.name}`;
+            document.getElementById('infoHash').value = ''; // 새 파일 처리 시작 시 InfoHash 필드 초기화
+
+            const reader = new FileReader();
+            reader.onload = async function(e) {
+                try {
+                    const torrentBytes = new Uint8Array(e.target.result);
+                    const infoDictBytes = extractInfoDictionaryBytes(torrentBytes);
+                    if (!infoDictBytes) {
+                        alert("'.torrent' 파일에서 'info' 딕셔너리를 찾을 수 없습니다.");
+                        selectedFileNameInfoSpan.textContent = `오류: ${file.name} (잘못된 파일 형식)`;
+                        return;
+                    }
+
+                    const hashBuffer = await crypto.subtle.digest('SHA-1', infoDictBytes);
+                    const hashArray = Array.from(new Uint8Array(hashBuffer));
+                    const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('').toUpperCase();
+                    
+                    document.getElementById('infoHash').value = hashHex;
+                    selectedFileNameInfoSpan.textContent = `추출 완료: ${file.name}`;
+                    // alert("Info Hash가 추출되어 입력 필드에 채워졌습니다: " + hashHex); // 성공 메시지는 파일명 표시로 대체
+
+                } catch (error) {
+                    console.error("Torrent 파일 처리 중 오류:", error);
+                    alert("Torrent 파일을 처리하는 중 오류가 발생했습니다: " + error.message);
+                    selectedFileNameInfoSpan.textContent = `오류: ${file.name} (${error.message})`;
+                } finally {
+                    // 파일 입력 필드 초기화 (같은 파일 다시 선택 가능하도록)
+                    // 하지만 사용자가 파일명을 보고 다른 파일을 선택할 수 있도록 여기서는 초기화 하지 않고,
+                    // 다음 change 이벤트에서 처리되도록 둡니다.
+                    // event.target.value = null; 
+                }
+            };
+            reader.onerror = function() {
+                alert("파일을 읽는 중 오류가 발생했습니다.");
+                selectedFileNameInfoSpan.textContent = '파일 읽기 오류';
+                event.target.value = null; // 오류 시에는 확실히 초기화
+            };
+            reader.readAsArrayBuffer(file);
+        }
+
+        // Bencode 파싱 헬퍼 함수들
+        // Uint8Array와 현재 인덱스를 받아 Bencoded 문자열과 그 다음 시작 인덱스를 반환
+        function readBencodedString(bytes, index) {
+            let colonIndex = index;
+            while (bytes[colonIndex] !== 0x3A /* : */) {
+                if (colonIndex >= bytes.length) throw new Error("Bencode: 문자열 콜론 없음");
+                colonIndex++;
+            }
+            const lengthStrUtf8 = bytes.slice(index, colonIndex);
+            const lengthStr = new TextDecoder().decode(lengthStrUtf8);
+            const length = parseInt(lengthStr, 10);
+            if (isNaN(length)) throw new Error("Bencode: 잘못된 문자열 길이");
+            
+            const strEndIndex = colonIndex + 1 + length;
+            if (strEndIndex > bytes.length) throw new Error("Bencode: 문자열 길이 초과");
+            
+            const strValueUtf8 = bytes.slice(colonIndex + 1, strEndIndex);
+            const strValue = new TextDecoder().decode(strValueUtf8);
+            return { value: strValue, endIndex: strEndIndex };
+        }
+
+        // Uint8Array와 현재 인덱스를 받아 Bencoded 아이템의 끝 인덱스 + 1을 반환
+        function getEndOfBencodedItem(bytes, index) {
+            if (index >= bytes.length) throw new Error("Bencode: 예상치 못한 파일 끝 (getEndOfBencodedItem)");
+            const type = bytes[index];
+
+            if (type === 0x69 /* i - integer */) {
+                let i = index + 1; 
+                while (bytes[i] !== 0x65 /* e */) {
+                    if (i >= bytes.length) throw new Error("Bencode: 정수 'e' 없음");
+                    i++;
+                }
+                return i + 1; 
+            } else if (type === 0x6C /* l - list */ || type === 0x64 /* d - dictionary */) {
+                let i = index + 1; 
+                const endChar = 0x65; /* e */
+                
+                while (bytes[i] !== endChar) {
+                    if (i >= bytes.length) throw new Error(`Bencode: ${type === 0x6C ? '리스트' : '딕셔너리'} 'e' 없음`);
+                    i = getEndOfBencodedItem(bytes, i); 
+                    if (type === 0x64 /* d */) { 
+                        if (i >= bytes.length && bytes[i] !== endChar) throw new Error("Bencode: 딕셔너리 'e' 앞 값 예상");
+                         if (bytes[i] === endChar) break; 
+                        i = getEndOfBencodedItem(bytes, i);
+                    }
+                }
+                return i + 1; 
+            } else if (type >= 0x30 /* 0 */ && type <= 0x39 /* 9 */) { // string
+                let colonIndex = index;
+                while (bytes[colonIndex] !== 0x3A /* : */) {
+                    if (colonIndex >= bytes.length) throw new Error("Bencode: 문자열 콜론 없음 (getEndOfBencodedItem)");
+                    colonIndex++;
+                }
+                const lengthStrUtf8 = bytes.slice(index, colonIndex);
+                const lengthStr = new TextDecoder().decode(lengthStrUtf8);
+                const length = parseInt(lengthStr, 10);
+                if (isNaN(length)) throw new Error("Bencode: 잘못된 문자열 길이 (getEndOfBencodedItem)");
+                
+                const strEnd = colonIndex + 1 + length;
+                if (strEnd > bytes.length) throw new Error("Bencode: 문자열 길이 초과 (getEndOfBencodedItem)");
+                return strEnd;
+            }
+            throw new Error(`Bencode: 잘못된 타입 문자 '${String.fromCharCode(type)}' (0x${type.toString(16)}) at index ${index}`);
+        }
+
+        // torrent 바이트 배열에서 'info' 딕셔너리의 원본 Bencoded 바이트를 추출
+        function extractInfoDictionaryBytes(torrentBytes) {
+            if (torrentBytes[0] !== 0x64 /* d */) throw new Error("Torrent 파일은 딕셔너리로 시작해야 합니다.");
+            let currentIndex = 1; // 첫 'd' 스킵
+            let infoDictSlice = null;
+
+            while (currentIndex < torrentBytes.length && torrentBytes[currentIndex] !== 0x65 /* e */) {
+                // 키 파싱 (문자열이어야 함)
+                const keyResult = readBencodedString(torrentBytes, currentIndex);
+                currentIndex = keyResult.endIndex;
+
+                // 값의 시작 위치와 끝 위치 찾기
+                const valueStartIndex = currentIndex;
+                currentIndex = getEndOfBencodedItem(torrentBytes, valueStartIndex);
+                
+                if (keyResult.value === 'info') {
+                    infoDictSlice = torrentBytes.slice(valueStartIndex, currentIndex);
+                    break; 
+                }
+            }
+
+            if (!infoDictSlice) throw new Error("'info' 딕셔너리를 찾지 못했습니다.");
+            return infoDictSlice;
         }
     </script>
 </body>
