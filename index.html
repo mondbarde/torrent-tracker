@@ -122,14 +122,17 @@
 
                 // Update table
                 const peerList = document.getElementById('peerList');
-                peerList.innerHTML = peers.map(peer => `
-                    <tr>
-                        <td>${peer.ip}</td>
-                        <td>${peer.port}</td>
-                        <td>${peer.country}</td>
-                        <td>${peer.city}</td>
-                    </tr>
-                `).join('');
+                peerList.innerHTML = peers.map(peer => {
+                    const iknowwhatyoudownloadUrl = `https://iknowwhatyoudownload.com/en/peer/?ip=${peer.ip}`;
+                    return `
+                        <tr>
+                            <td><a href="${iknowwhatyoudownloadUrl}" target="_blank" rel="noopener noreferrer">${peer.ip}</a></td>
+                            <td>${peer.port}</td>
+                            <td>${peer.country}</td>
+                            <td>${peer.city}</td>
+                        </tr>
+                    `;
+                }).join('');
 
                 // Update map
                 peers.forEach(peer => {
