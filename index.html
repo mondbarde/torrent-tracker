@@ -24,6 +24,9 @@
     <!-- Leaflet JS 로드 -->
     <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js" integrity="sha512-XQoYMqMTK8LvdxXYG3nZ448hOEQiglfqkJs1NOQV44cWnUrBc8PkAOcXy20w0vlaXaVUearIOBhiXZ5V3ynxwA==" crossorigin=""></script>
     
+    <!-- 외부 Bencode.js 파일 로드 -->
+    <script src="bencode.js"></script>
+    
     <style>
         #map {
             height: 500px;
@@ -234,12 +237,12 @@
                 };
                 
                 // 피어 검색 함수
-                async function searchPeers() {
+        async function searchPeers() {
                     const trimmedInfoHash = infoHash.trim();
                     if (!trimmedInfoHash) {
-                        alert('Please enter an info hash');
-                        return;
-                    }
+                alert('Please enter an info hash');
+                return;
+            }
 
                     // 이전 결과 초기화
                     if (mapInstance) {
@@ -249,7 +252,7 @@
                                 mapInstance.removeLayer(marker);
                             }
                         });
-                        markers = [];
+            markers = [];
                     } else if (mapReady) {
                         // 지도 다시 초기화
                         console.log('지도 객체가 없어 다시 초기화합니다');
@@ -262,11 +265,11 @@
                     setPeerList([]);
                     setErrorMessage('');
                     setIsLoading(true);
-                    document.getElementById('loading').style.display = 'block';
+            document.getElementById('loading').style.display = 'block';
                     document.getElementById('mapLoading').style.display = 'block';
 
-                    try {
-                        console.log('Sending request to server...');
+            try {
+                console.log('Sending request to server...');
                         
                         // 저장된 인증 토큰 가져오기
                         const token = localStorage.getItem('supabase.auth.token') || '';
@@ -274,26 +277,26 @@
                         
                         // 인증된 요청 보내기
                         const response = await fetch('/api/search', {
-                            method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/json',
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
                                 'Authorization': `Bearer ${token}`
-                            },
+                    },
                             body: JSON.stringify({ infoHash: trimmedInfoHash })
-                        });
+                });
 
-                        if (!response.ok) {
-                            const errorText = await response.text();
-                            throw new Error(`HTTP error! status: ${response.status}, message: ${errorText}`);
-                        }
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    throw new Error(`HTTP error! status: ${response.status}, message: ${errorText}`);
+                }
 
-                        const peers = await response.json();
-                        
-                        if (!Array.isArray(peers)) {
+                const peers = await response.json();
+                
+                if (!Array.isArray(peers)) {
                             throw new Error('Invalid response format from server');
-                        }
-                        
-                        if (peers.length === 0) {
+                }
+                
+                if (peers.length === 0) {
                             setErrorMessage('No peers found');
                         } else {
                             setPeerList(peers);
@@ -316,36 +319,36 @@
                                 mapInstance.invalidateSize(true);
                             }
                             
-                            peers.forEach(peer => {
-                                if (peer.latitude && peer.longitude) {
+                peers.forEach(peer => {
+                    if (peer.latitude && peer.longitude) {
                                     try {
                                         console.log(`마커 추가: ${peer.ip} (${peer.latitude}, ${peer.longitude})`);
-                                        const marker = L.marker([peer.latitude, peer.longitude])
-                                            .bindPopup(`IP: ${peer.ip}<br>Country: ${peer.country}<br>City: ${peer.city}`);
+                        const marker = L.marker([peer.latitude, peer.longitude])
+                            .bindPopup(`IP: ${peer.ip}<br>Country: ${peer.country}<br>City: ${peer.city}`);
                                         marker.addTo(mapInstance);
-                                        markers.push(marker);
+                        markers.push(marker);
                                     } catch (err) {
                                         console.error('마커 추가 오류:', err);
                                     }
-                                }
-                            });
+                    }
+                });
 
-                            if (markers.length > 0) {
+                if (markers.length > 0) {
                                 try {
-                                    const group = new L.featureGroup(markers);
+                    const group = new L.featureGroup(markers);
                                     mapInstance.fitBounds(group.getBounds().pad(0.1));
                                     console.log('지도 경계 조정 완료');
                                 } catch (err) {
                                     console.error('지도 경계 조정 오류:', err);
                                 }
                             }
-                        }
-                    } catch (error) {
-                        console.error('Error:', error);
+                }
+            } catch (error) {
+                console.error('Error:', error);
                         setErrorMessage(error.message);
-                    } finally {
+            } finally {
                         setIsLoading(false);
-                        document.getElementById('loading').style.display = 'none';
+                document.getElementById('loading').style.display = 'none';
                         document.getElementById('mapLoading').style.display = 'none';
                         
                         // 맵 갱신
@@ -357,43 +360,94 @@
                 }
 
                 // torrent 파일 업로드 핸들러
-                async function handleTorrentFileSelect(event) {
-                    const file = event.target.files[0];
-                    const selectedFileNameInfoSpan = document.getElementById('selectedFileNameInfo');
+        async function handleTorrentFileSelect(event) {
+            const file = event.target.files[0];
+            const selectedFileNameInfoSpan = document.getElementById('selectedFileNameInfo');
 
-                    if (!file) {
-                        selectedFileNameInfoSpan.textContent = '선택된 파일 없음';
-                        setInfoHash(''); // 파일 선택 취소 시 InfoHash 필드도 초기화
-                        return;
-                    }
+            if (!file) {
+                selectedFileNameInfoSpan.textContent = '선택된 파일 없음';
+                setInfoHash(''); // 파일 선택 취소 시 InfoHash 필드도 초기화
+                return;
+            }
 
-                    selectedFileNameInfoSpan.textContent = `처리 중: ${file.name}`;
-                    setInfoHash(''); // 새 파일 처리 시작 시 InfoHash 필드 초기화
+            selectedFileNameInfoSpan.textContent = `처리 중: ${file.name}`;
+            setInfoHash(''); // 새 파일 처리 시작 시 InfoHash 필드 초기화
 
-                    const reader = new FileReader();
-                    reader.onload = async function(e) {
-                        try {
-                            const torrentBytes = new Uint8Array(e.target.result);
-                            const infoDictBytes = extractInfoDictionaryBytes(torrentBytes);
-                            if (!infoDictBytes) {
-                                alert("'.torrent' 파일에서 'info' 딕셔너리를 찾을 수 없습니다.");
-                                selectedFileNameInfoSpan.textContent = `오류: ${file.name} (잘못된 파일 형식)`;
-                                return;
-                            }
+            try {
+                // 파일을 ArrayBuffer로 읽기
+                const fileBuffer = await readFileAsArrayBuffer(file);
+                const fileBytes = new Uint8Array(fileBuffer);
+                
+                console.log(`토렌트 파일 크기: ${fileBytes.length} 바이트`);
+                
+                // Bencode.js 라이브러리를 사용하여 Info Hash 계산
+                const infoHash = await calculateInfoHashWithBencodeLib(fileBytes);
+                
+                // 입력된 기대 해시와 계산된 해시 비교
+                const expectedHash = "bdeb09256e05ea98d659fd1282692c1a69c4eaa6"; // 새 토렌트 파일의 기대 해시로 변경
+                console.log(`[새 토렌트 파일 검증] 계산된 Info Hash: ${infoHash}`);
+                console.log(`[새 토렌트 파일 검증] 기대값: ${expectedHash}`);
+                console.log(`[새 토렌트 파일 검증] 일치 여부: ${infoHash === expectedHash ? '일치' : '불일치'}`);
+                
+                setInfoHash(infoHash);
+                selectedFileNameInfoSpan.textContent = `추출 완료: ${file.name}`;
+            } catch (error) {
+                console.error('토렌트 파일 처리 오류:', error);
+                selectedFileNameInfoSpan.textContent = `오류: ${file.name} (${error.message})`;
+            }
+        }
+        
+        // FileReader를 Promise로 래핑
+        function readFileAsArrayBuffer(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = e => resolve(e.target.result);
+                reader.onerror = e => reject(new Error('파일 읽기 오류'));
+                reader.readAsArrayBuffer(file);
+            });
+        }
+        
+        // Bencode.js 라이브러리를 사용하여 Info Hash 계산하는 새 함수
+        async function calculateInfoHashWithBencodeLib(fileBytes) {
+            // 1. Uint8Array를 Bencode.decode가 요구하는 바이너리 문자열로 변환
+            let binaryString = "";
+            for (let i = 0; i < fileBytes.length; i++) {
+                binaryString += String.fromCharCode(fileBytes[i]);
+            }
 
-                            const hashBuffer = await crypto.subtle.digest('SHA-1', infoDictBytes);
-                            const hashArray = Array.from(new Uint8Array(hashBuffer));
-                            const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('').toUpperCase();
-                            
-                            setInfoHash(hashHex);
-                            selectedFileNameInfoSpan.textContent = `추출 완료: ${file.name}`;
-                        } catch (error) {
-                            console.error('Error processing torrent file:', error);
-                            selectedFileNameInfoSpan.textContent = `오류: ${file.name} (${error.message})`;
-                        }
-                    };
-                    reader.readAsArrayBuffer(file);
+            // 2. 전체 토렌트 데이터 디코딩
+            const decodedTorrent = Bencode.decode(binaryString);
+            
+            // 3. info 객체 추출
+            const infoObject = decodedTorrent.info;
+            if (!infoObject) {
+                throw new Error('\'info\' 딕셔너리를 토렌트 파일에서 찾을 수 없습니다.');
+            }
+            console.log("Original infoObject from Bencode.decode:", JSON.stringify(infoObject, (key, value) => {
+                if (typeof value === 'string') {
+                    // Print char codes for strings to see if they are binary strings
+                    return value.split('').map(char => char.charCodeAt(0)).join(',');
                 }
+                return value;
+            }, 2));
+
+            // 4. info 객체를 Bencode.encode를 사용하여 정규화된 바이너리 문자열로 다시 인코딩
+            // Bencode.encode는 객체의 키를 알파벳 순으로 정렬합니다.
+            const bencodedInfoString = Bencode.encode(infoObject);
+
+            // 5. 인코딩된 info 문자열을 해시 계산을 위해 Uint8Array로 변환
+            const infoBytesForHashing = new Uint8Array(bencodedInfoString.length);
+            for (let i = 0; i < bencodedInfoString.length; i++) {
+                infoBytesForHashing[i] = bencodedInfoString.charCodeAt(i);
+            }
+
+            // 6. SHA-1 해시 계산
+            const hashBuffer = await crypto.subtle.digest('SHA-1', infoBytesForHashing);
+            const hashArray = Array.from(new Uint8Array(hashBuffer));
+            const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+            
+            return hashHex;
+        }
 
                 // 컴포넌트 마운트 시 초기화
                 useEffect(() => {
@@ -592,12 +646,129 @@
                 );
             }
             
+            // 앱 컨테이너 컴포넌트
+            function AppContainer() {
+                const [user, setUser] = useState(null);
+                const [loading, setLoading] = useState(true);
+                const [authReady, setAuthReady] = useState(false);
+                
+                // 페이지 로드 시 인증 초기화
+                useEffect(() => {
+                    console.log('AppContainer 마운트: 인증 초기화');
+                    if (window.supabaseClient && window.supabaseClient.clearStorageAuth) {
+                        window.supabaseClient.clearStorageAuth();
+                        setAuthReady(true);
+                    }
+                }, []);
+                
+                // 로그인 상태 확인 - authReady 상태가 true일 때만 실행
+                useEffect(() => {
+                    if (!authReady) return;
+                    
+                    async function checkAuth() {
+                        try {
+                            if (!window.supabaseClient || !window.supabaseClient.checkUserSession) {
+                                console.warn('Supabase 클라이언트가 초기화되지 않았습니다.');
+                                setUser(null);
+                                setLoading(false);
+                                return;
+                            }
+
+                            // 세션 확인 요청
+                            console.log('사용자 세션 확인 중...');
+                            const currentUser = await window.supabaseClient.checkUserSession();
+                            console.log('세션 확인 결과:', currentUser ? '로그인됨' : '로그인되지 않음');
+                            
+                            if (currentUser) {
+                                console.log('인증된 사용자:', currentUser.email);
+                            }
+                            
+                            setUser(currentUser);
+                        } catch (error) {
+                            console.error('세션 확인 오류:', error);
+                            setUser(null);
+                        } finally {
+                            setLoading(false);
+                        }
+                    }
+                    
+                    checkAuth();
+                }, [authReady]);
+                
+                // 로그인 핸들러
+                const handleLogin = (user) => {
+                    console.log('로그인 성공, 사용자 설정:', user);
+                    setUser(user);
+                };
+                
+                // 로그아웃 핸들러
+                const handleLogout = async () => {
+                    console.log('로그아웃 시작...');
+                    setLoading(true);
+                    
+                    try {
+                        // 로그아웃 전에 모든 토큰 및 세션 정보 저장
+                        const allItems = { ...localStorage };
+                        console.log('로그아웃 전 로컬 스토리지 상태:', allItems);
+                        
+                        // Supabase 클라이언트의 signOut 호출
+                        if (window.supabaseClient && window.supabaseClient.signOut) {
+                            const result = await window.supabaseClient.signOut();
+                            console.log('Supabase 로그아웃 결과:', result);
+                        }
+                        
+                        // 최종 확인 - 토큰이 남아있는지 확인
+                        console.log('로그아웃 후 로컬 스토리지 상태:', { ...localStorage });
+                        
+                        // 사용자 상태 초기화
+                        setUser(null);
+                        console.log('로그아웃 성공');
+                        
+                        // 페이지 새로고침
+                        setTimeout(() => {
+                            console.log('로그아웃 후 페이지 새로고침 중...');
+                            window.location.reload();
+                        }, 500);
+                    } catch (error) {
+                        console.error('로그아웃 오류:', error);
+                        setUser(null);
+                    } finally {
+                        setLoading(false);
+                    }
+                };
+                
+                // 로딩 중 표시
+                if (loading) {
+                    return e('div', { className: 'flex justify-center items-center h-screen' },
+                        e('div', { className: 'spinner-border text-primary', role: 'status' },
+                            e('span', { className: 'visually-hidden' }, 'Loading...')
+                        )
+                    );
+                }
+                
+                // 로그인 여부에 따라 컴포넌트 분기
+                return user
+                    ? e(TorrentTrackerApp, { user, onLogout: handleLogout })
+                    : e(LoginPage, { onLogin: handleLogin });
+            }
+            
             // 로그인 페이지 컴포넌트
             function LoginPage({ onLogin }) {
                 const [userId, setUserId] = useState('');
                 const [password, setPassword] = useState('');
                 const [loading, setLoading] = useState(false);
                 const [error, setError] = useState(null);
+                
+                // 컴포넌트 마운트 시 세션 초기화
+                useEffect(() => {
+                    console.log('로그인 페이지 마운트: 세션 초기화 확인');
+                    
+                    // 기존에 저장된 인증 관련 정보가 있는지 확인하고 제거
+                    if (window.supabaseClient && window.supabaseClient.clearStorageAuth) {
+                        window.supabaseClient.clearStorageAuth();
+                        console.log('로그인 페이지: 인증 정보 정리 완료');
+                    }
+                }, []);
                 
                 const handleLogin = async (e) => {
                     e.preventDefault();
@@ -706,113 +877,10 @@
                 );
             }
             
-            // 앱 컨테이너 컴포넌트
-            function AppContainer() {
-                const [user, setUser] = useState(null);
-                const [loading, setLoading] = useState(true);
-                
-                // 로그인 상태 확인
-                useEffect(() => {
-                    async function checkAuth() {
-                        try {
-                            if (!window.supabaseClient || !window.supabaseClient.checkUserSession) {
-                                console.warn('Supabase 클라이언트가 초기화되지 않았습니다.');
-                                setUser(null);
-                                setLoading(false);
-                                return;
-                            }
-
-                            // 세션 확인 요청
-                            console.log('사용자 세션 확인 중...');
-                            const currentUser = await window.supabaseClient.checkUserSession();
-                            console.log('세션 확인 결과:', currentUser ? '로그인됨' : '로그인되지 않음');
-                            
-                            if (currentUser) {
-                                console.log('인증된 사용자:', currentUser.email);
-                            }
-                            
-                            setUser(currentUser);
-                        } catch (error) {
-                            console.error('세션 확인 오류:', error);
-                            setUser(null);
-                        } finally {
-                            setLoading(false);
-                        }
-                    }
-                    
-                    checkAuth();
-                }, []);
-                
-                // 로그인 핸들러
-                const handleLogin = (user) => {
-                    setUser(user);
-                };
-                
-                // 로그아웃 핸들러
-                const handleLogout = async () => {
-                    try {
-                        if (window.supabaseClient && window.supabaseClient.signOut) {
-                            await window.supabaseClient.signOut();
-                        }
-                        localStorage.removeItem('supabase.auth.token');
-                        setUser(null);
-                    } catch (error) {
-                        console.error('Error signing out:', error);
-                    }
-                };
-                
-                // 로딩 중 표시
-                if (loading) {
-                    return e('div', { className: 'flex justify-center items-center h-screen' },
-                        e('div', { className: 'spinner-border text-primary', role: 'status' },
-                            e('span', { className: 'visually-hidden' }, 'Loading...')
-                        )
-                    );
-                }
-                
-                // 로그인 여부에 따라 컴포넌트 분기
-                return user
-                    ? e(TorrentTrackerApp, { user, onLogout: handleLogout })
-                    : e(LoginPage, { onLogin: handleLogin });
-            }
-            
             // DOM에 리액트 앱 렌더링
             const root = document.getElementById('root');
             const reactRoot = ReactDOM.createRoot(root);
             reactRoot.render(e(AppContainer));
-        }
-        
-        // torrent 파일에서 info 딕셔너리 추출 함수
-        function extractInfoDictionaryBytes(bytes) {
-            const decoder = new TextDecoder();
-            const content = decoder.decode(bytes);
-            
-            // 'info' 딕셔너리 위치 찾기
-            const infoStart = content.indexOf('4:info');
-            if (infoStart === -1) return null;
-            
-            // 'info' 바로 뒤의 'd' 문자 위치 찾기
-            const dictStart = content.indexOf('d', infoStart + 6);
-            if (dictStart === -1) return null;
-            
-            // Bencode 딕셔너리 구문 분석
-            let depth = 1;
-            let i = dictStart + 1;
-            
-            while (depth > 0 && i < content.length) {
-                if (content[i] === 'd' || content[i] === 'l') {
-                    depth++;
-                } else if (content[i] === 'e') {
-                    depth--;
-                }
-                i++;
-            }
-            
-            if (depth !== 0) return null;
-            
-            // 딕셔너리 범위를 바이트 배열로 변환
-            const dictBytes = bytes.slice(dictStart, i);
-            return dictBytes;
         }
     </script>
 </body>
