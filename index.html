@@ -4,309 +4,815 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Torrent Peer Tracker</title>
+    <!-- React 라이브러리 로드 -->
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    
+    <!-- Tailwind CSS + Bootstrap 로드 -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css" />
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    
+    <!-- Leaflet CSS 먼저 로드 -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css" integrity="sha512-xodZBNTC5n17Xt2atTPuE1HxjVMSvLVW9ocqUKLsCC5CXdbqCmblAshOMAS6/keqq/sMZMZ19scR4PsZChSR7A==" crossorigin=""/>
+    
+    <!-- 아이콘 라이브러리 (Lucide-React 대체) -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- Supabase 클라이언트 -->
+    <script src="https://unpkg.com/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+    
+    <!-- Leaflet JS 로드 -->
+    <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js" integrity="sha512-XQoYMqMTK8LvdxXYG3nZ448hOEQiglfqkJs1NOQV44cWnUrBc8PkAOcXy20w0vlaXaVUearIOBhiXZ5V3ynxwA==" crossorigin=""></script>
+    
     <style>
         #map {
             height: 500px;
             width: 100%;
             margin-top: 20px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            z-index: 1; /* z-index 설정 */
+            position: relative; /* 위치 설정 */
+            display: block; /* 블록 표시 */
         }
         .loading {
             display: none;
             margin: 20px 0;
         }
+        .spinner {
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+        .map-container {
+            position: relative;
+            margin-bottom: 20px;
+            height: 550px; /* 컨테이너 높이 명시 */
+        }
+        .map-loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 100; /* 더 높은 z-index */
+            background: rgba(255, 255, 255, 0.8);
+            padding: 15px;
+            border-radius: 5px;
+            display: none;
+        }
+        /* 지도 타일 제대로 로드하기 위한 스타일 */
+        .leaflet-tile-pane {
+            z-index: 2;
+        }
+        .leaflet-control-container {
+            z-index: 10;
+        }
     </style>
 </head>
 <body>
-    <div class="container mt-5">
-        <h1 class="mb-4">Torrent Peer Tracker</h1>
-        
-        <div class="row mb-3">
-            <div class="col-md-12">
-                <label for="torrentFile" class="form-label">torrent 파일에서 Info Hash 추출:</label>
-                <div class="input-group">
-                    <input class="form-control" type="file" id="torrentFile" accept=".torrent">
-                </div>
-                 <span id="selectedFileNameInfo" class="form-text"></span>
-            </div>
-        </div>
-
-        <div class="row">
-            <div class="col-md-6">
-                <div class="input-group mb-3">
-                    <input type="text" id="infoHash" class="form-control" placeholder="Enter Info Hash">
-                    <button class="btn btn-primary" onclick="searchPeers()">Search</button>
-                </div>
-            </div>
-        </div>
-
-        <div class="loading" id="loading">
-            <div class="d-flex align-items-center">
-                <strong>Searching for peers...</strong>
-                <div class="spinner-border ms-auto" role="status" aria-hidden="true"></div>
-            </div>
-        </div>
-
-        <div id="map"></div>
-
-        <div class="mt-4">
-            <h3>Peer List</h3>
-            <div class="table-responsive">
-                <table class="table table-striped">
-                    <thead>
-                        <tr>
-                            <th>IP Address</th>
-                            <th>Port</th>
-                            <th>Country</th>
-                            <th>City</th>
-                        </tr>
-                    </thead>
-                    <tbody id="peerList">
-                    </tbody>
-                </table>
-            </div>
+    <div id="root">
+        <div style="display: flex; justify-content: center; align-items: center; height: 100vh;">
+            <div style="border: 4px solid #f3f3f3; border-top: 4px solid #3498db; border-radius: 50%; width: 50px; height: 50px; animation: spin 1s linear infinite;"></div>
         </div>
     </div>
 
-    <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
+    <!-- Supabase 클라이언트 JS 파일 로드 -->
+    <script src="supabaseClient.js"></script>
+
+    <!-- 환경 변수 초기화 스크립트 -->
     <script>
-        let map = L.map('map').setView([0, 0], 2);
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            attribution: '© OpenStreetMap contributors'
-        }).addTo(map);
-
-        let markers = [];
-
-        async function searchPeers() {
-            const infoHash = document.getElementById('infoHash').value.trim();
-            if (!infoHash) {
-                alert('Please enter an info hash');
-                return;
-            }
-
-            // Clear previous results
-            markers.forEach(marker => map.removeLayer(marker));
-            markers = [];
-            document.getElementById('peerList').innerHTML = '';
-            document.getElementById('loading').style.display = 'block';
-
+        // 초기화: 클라이언트에서 사용할 환경 변수를 전역 객체에 설정
+        window.SUPABASE_URL = '';
+        window.SUPABASE_KEY = '';
+        
+        // 서버에서 설정 가져오는 함수
+        async function fetchConfig() {
             try {
-                console.log('Sending request to server...');
-                const response = await fetch('http://localhost:3001/api/search', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({ infoHash })
-                });
-
-                console.log('Response status:', response.status);
-                console.log('Response headers:', Object.fromEntries(response.headers.entries()));
-
+                const response = await fetch('/api/config');
                 if (!response.ok) {
-                    const errorText = await response.text();
-                    console.error('Error response:', errorText);
-                    throw new Error(`HTTP error! status: ${response.status}, message: ${errorText}`);
-                }
-
-                const peers = await response.json();
-                console.log('Received peers:', peers);
-                console.log('Peers type:', typeof peers);
-                console.log('Is array?', Array.isArray(peers));
-                console.log('Peers length:', peers.length);
-                
-                if (!Array.isArray(peers)) {
-                    console.error('Invalid response format:', peers);
-                    document.getElementById('peerList').innerHTML = '<tr><td colspan="4" class="text-center text-danger">Invalid response format from server</td></tr>';
-                    document.getElementById('loading').style.display = 'none';
-                    return;
+                    throw new Error('설정을 가져오는데 실패했습니다');
                 }
                 
-                if (peers.length === 0) {
-                    console.log('No peers found');
-                    document.getElementById('peerList').innerHTML = '<tr><td colspan="4" class="text-center">No peers found</td></tr>';
-                    document.getElementById('loading').style.display = 'none';
-                    return;
-                }
-
-                // Update table
-                const peerList = document.getElementById('peerList');
-                peerList.innerHTML = peers.map(peer => {
-                    const iknowwhatyoudownloadUrl = `https://iknowwhatyoudownload.com/en/peer/?ip=${peer.ip}`;
-                    return `
-                        <tr>
-                            <td><a href="${iknowwhatyoudownloadUrl}" target="_blank" rel="noopener noreferrer">${peer.ip}</a></td>
-                            <td>${peer.port}</td>
-                            <td>${peer.country}</td>
-                            <td>${peer.city}</td>
-                        </tr>
-                    `;
-                }).join('');
-
-                // Update map
-                peers.forEach(peer => {
-                    if (peer.latitude && peer.longitude) {
-                        const marker = L.marker([peer.latitude, peer.longitude])
-                            .bindPopup(`IP: ${peer.ip}<br>Country: ${peer.country}<br>City: ${peer.city}`);
-                        marker.addTo(map);
-                        markers.push(marker);
+                const config = await response.json();
+                
+                // 전역 객체에 설정
+                window.SUPABASE_URL = config.supabaseUrl || '';
+                window.SUPABASE_KEY = config.supabaseKey || '';
+                
+                console.log('환경 설정을 성공적으로 로드했습니다.');
+                console.log('Supabase URL:', window.SUPABASE_URL ? '설정됨' : '설정되지 않음');
+                console.log('Supabase Key:', window.SUPABASE_KEY ? '설정됨' : '설정되지 않음');
+                
+                // supabase 초기화 수행 - 지연 감소
+                setTimeout(() => {
+                    if (window.supabaseClient && typeof window.supabaseClient.initializeSupabase === 'function') {
+                        const initialized = window.supabaseClient.initializeSupabase(window.SUPABASE_URL, window.SUPABASE_KEY);
+                        console.log('Supabase 초기화 결과:', initialized ? '성공' : '실패 (테스트 모드 활성화)');
+                    } else {
+                        console.warn('supabaseClient.initializeSupabase 함수가 없습니다.');
                     }
-                });
-
-                if (markers.length > 0) {
-                    const group = new L.featureGroup(markers);
-                    map.fitBounds(group.getBounds().pad(0.1));
-                }
+                    
+                    // 애플리케이션 초기화
+                    initializeApp();
+                }, 300);
+                
             } catch (error) {
-                console.error('Error:', error);
-                document.getElementById('peerList').innerHTML = `<tr><td colspan="4" class="text-center text-danger">Error: ${error.message}</td></tr>`;
-            } finally {
-                document.getElementById('loading').style.display = 'none';
+                console.error('설정 로드 오류:', error);
+                console.warn('테스트 모드로 계속합니다.');
+                
+                // 애플리케이션 초기화 (테스트 모드)
+                setTimeout(initializeApp, 300);
             }
         }
+        
+        // 페이지 로드 시 설정 가져오기
+        window.addEventListener('DOMContentLoaded', fetchConfig);
+    </script>
 
-        document.getElementById('torrentFile').addEventListener('change', handleTorrentFileSelect, false);
-
-        async function handleTorrentFileSelect(event) {
-            const file = event.target.files[0];
-            const selectedFileNameInfoSpan = document.getElementById('selectedFileNameInfo');
-
-            if (!file) {
-                selectedFileNameInfoSpan.textContent = '선택된 파일 없음';
-                document.getElementById('infoHash').value = ''; // 파일 선택 취소 시 InfoHash 필드도 초기화
-                return;
+    <script>
+        // 전역 변수 설정
+        let markers = [];
+        let mapInstance = null;
+        
+        // 지도 초기화 함수
+        function initializeMap(elementId) {
+            console.log('새 지도 초기화 중...');
+            
+            try {
+                // 기존 맵 제거
+                const mapElement = document.getElementById(elementId);
+                
+                if (!mapElement) {
+                    console.error('지도 요소를 찾을 수 없습니다:', elementId);
+                    return null;
+                }
+                
+                console.log('지도 요소 크기:', mapElement.offsetWidth, 'x', mapElement.offsetHeight);
+                
+                if (mapElement._leaflet_id) {
+                    console.log('기존 지도 인스턴스 정리');
+                    if (mapInstance) {
+                        mapInstance.remove();
+                        mapInstance = null;
+                    }
+                }
+                
+                // 새 맵 생성 전에 컨테이너 스타일 확인
+                mapElement.style.height = '500px';
+                mapElement.style.width = '100%';
+                mapElement.style.display = 'block';
+                
+                // 새 맵 생성
+                mapInstance = L.map(elementId, {
+                    center: [0, 0],
+                    zoom: 2,
+                    zoomControl: true,
+                    attributionControl: true
+                });
+                
+                L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                    attribution: '© OpenStreetMap contributors',
+                    maxZoom: 19
+                }).addTo(mapInstance);
+                
+                console.log('지도 초기화 완료');
+                
+                // 지도 크기 재계산 (Leaflet 버그 해결)
+                setTimeout(() => {
+                    if (mapInstance) {
+                        console.log('지도 크기 재조정');
+                        mapInstance.invalidateSize(true);
+                    }
+                }, 500);
+                
+                return mapInstance;
+            } catch (error) {
+                console.error('지도 초기화 오류:', error);
+                return null;
             }
-
-            selectedFileNameInfoSpan.textContent = `처리 중: ${file.name}`;
-            document.getElementById('infoHash').value = ''; // 새 파일 처리 시작 시 InfoHash 필드 초기화
-
-            const reader = new FileReader();
-            reader.onload = async function(e) {
-                try {
-                    const torrentBytes = new Uint8Array(e.target.result);
-                    const infoDictBytes = extractInfoDictionaryBytes(torrentBytes);
-                    if (!infoDictBytes) {
-                        alert("'.torrent' 파일에서 'info' 딕셔너리를 찾을 수 없습니다.");
-                        selectedFileNameInfoSpan.textContent = `오류: ${file.name} (잘못된 파일 형식)`;
+        }
+        
+        // 애플리케이션 초기화 함수
+        function initializeApp() {
+            // React 및 관련 라이브러리 설정
+            const React = window.React;
+            const ReactDOM = window.ReactDOM;
+            const { useState, useEffect } = React;
+            const e = React.createElement;
+            
+            // 아이콘 컴포넌트 정의
+            const lucide = {
+                Search: props => e('i', { className: `fas fa-search ${props.className || ''}` }),
+                Download: props => e('i', { className: `fas fa-download ${props.className || ''}` }),
+                RefreshCw: props => e('i', { className: `fas fa-sync ${props.className || ''} spinner` }),
+                Info: props => e('i', { className: `fas fa-info-circle ${props.className || ''}` }),
+                Shield: props => e('i', { className: `fas fa-shield-alt ${props.className || ''}` }),
+                Globe: props => e('i', { className: `fas fa-globe ${props.className || ''}` }),
+                Database: props => e('i', { className: `fas fa-database ${props.className || ''}` }),
+                LogOut: props => e('i', { className: `fas fa-sign-out-alt ${props.className || ''}` }),
+                AlertCircle: props => e('i', { className: `fas fa-exclamation-circle ${props.className || ''}` }),
+                Lock: props => e('i', { className: `fas fa-lock ${props.className || ''}` }),
+                User: props => e('i', { className: `fas fa-user ${props.className || ''}` })
+            };
+            
+            // Lucide 컴포넌트를 전역으로 노출
+            window.lucide = lucide;
+            
+            // 메인 앱 컴포넌트
+            function TorrentTrackerApp({ user, onLogout }) {
+                const [infoHash, setInfoHash] = useState('');
+                const [isLoading, setIsLoading] = useState(false);
+                const [peerList, setPeerList] = useState([]);
+                const [errorMessage, setErrorMessage] = useState('');
+                const [mapReady, setMapReady] = useState(false);
+                
+                // 로그아웃 핸들러
+                const handleLogout = async () => {
+                    await onLogout();
+                };
+                
+                // 피어 검색 함수
+                async function searchPeers() {
+                    const trimmedInfoHash = infoHash.trim();
+                    if (!trimmedInfoHash) {
+                        alert('Please enter an info hash');
                         return;
                     }
 
-                    const hashBuffer = await crypto.subtle.digest('SHA-1', infoDictBytes);
-                    const hashArray = Array.from(new Uint8Array(hashBuffer));
-                    const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('').toUpperCase();
+                    // 이전 결과 초기화
+                    if (mapInstance) {
+                        // 기존 마커 제거
+                        markers.forEach(marker => {
+                            if (mapInstance.hasLayer(marker)) {
+                                mapInstance.removeLayer(marker);
+                            }
+                        });
+                        markers = [];
+                    } else if (mapReady) {
+                        // 지도 다시 초기화
+                        console.log('지도 객체가 없어 다시 초기화합니다');
+                        mapInstance = initializeMap('map');
+                    } else {
+                        console.error('지도가 준비되지 않았습니다');
+                        return;
+                    }
                     
-                    document.getElementById('infoHash').value = hashHex;
-                    selectedFileNameInfoSpan.textContent = `추출 완료: ${file.name}`;
-                    // alert("Info Hash가 추출되어 입력 필드에 채워졌습니다: " + hashHex); // 성공 메시지는 파일명 표시로 대체
+                    setPeerList([]);
+                    setErrorMessage('');
+                    setIsLoading(true);
+                    document.getElementById('loading').style.display = 'block';
+                    document.getElementById('mapLoading').style.display = 'block';
 
-                } catch (error) {
-                    console.error("Torrent 파일 처리 중 오류:", error);
-                    alert("Torrent 파일을 처리하는 중 오류가 발생했습니다: " + error.message);
-                    selectedFileNameInfoSpan.textContent = `오류: ${file.name} (${error.message})`;
-                } finally {
-                    // 파일 입력 필드 초기화 (같은 파일 다시 선택 가능하도록)
-                    // 하지만 사용자가 파일명을 보고 다른 파일을 선택할 수 있도록 여기서는 초기화 하지 않고,
-                    // 다음 change 이벤트에서 처리되도록 둡니다.
-                    // event.target.value = null; 
-                }
-            };
-            reader.onerror = function() {
-                alert("파일을 읽는 중 오류가 발생했습니다.");
-                selectedFileNameInfoSpan.textContent = '파일 읽기 오류';
-                event.target.value = null; // 오류 시에는 확실히 초기화
-            };
-            reader.readAsArrayBuffer(file);
-        }
+                    try {
+                        console.log('Sending request to server...');
+                        
+                        // 저장된 인증 토큰 가져오기
+                        const token = localStorage.getItem('supabase.auth.token') || '';
+                        console.log('사용할 인증 토큰:', token ? '토큰 있음' : '토큰 없음');
+                        
+                        // 인증된 요청 보내기
+                        const response = await fetch('/api/search', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'Authorization': `Bearer ${token}`
+                            },
+                            body: JSON.stringify({ infoHash: trimmedInfoHash })
+                        });
 
-        // Bencode 파싱 헬퍼 함수들
-        // Uint8Array와 현재 인덱스를 받아 Bencoded 문자열과 그 다음 시작 인덱스를 반환
-        function readBencodedString(bytes, index) {
-            let colonIndex = index;
-            while (bytes[colonIndex] !== 0x3A /* : */) {
-                if (colonIndex >= bytes.length) throw new Error("Bencode: 문자열 콜론 없음");
-                colonIndex++;
-            }
-            const lengthStrUtf8 = bytes.slice(index, colonIndex);
-            const lengthStr = new TextDecoder().decode(lengthStrUtf8);
-            const length = parseInt(lengthStr, 10);
-            if (isNaN(length)) throw new Error("Bencode: 잘못된 문자열 길이");
-            
-            const strEndIndex = colonIndex + 1 + length;
-            if (strEndIndex > bytes.length) throw new Error("Bencode: 문자열 길이 초과");
-            
-            const strValueUtf8 = bytes.slice(colonIndex + 1, strEndIndex);
-            const strValue = new TextDecoder().decode(strValueUtf8);
-            return { value: strValue, endIndex: strEndIndex };
-        }
+                        if (!response.ok) {
+                            const errorText = await response.text();
+                            throw new Error(`HTTP error! status: ${response.status}, message: ${errorText}`);
+                        }
 
-        // Uint8Array와 현재 인덱스를 받아 Bencoded 아이템의 끝 인덱스 + 1을 반환
-        function getEndOfBencodedItem(bytes, index) {
-            if (index >= bytes.length) throw new Error("Bencode: 예상치 못한 파일 끝 (getEndOfBencodedItem)");
-            const type = bytes[index];
+                        const peers = await response.json();
+                        
+                        if (!Array.isArray(peers)) {
+                            throw new Error('Invalid response format from server');
+                        }
+                        
+                        if (peers.length === 0) {
+                            setErrorMessage('No peers found');
+                        } else {
+                            setPeerList(peers);
+                            
+                            // 지도에 마커 추가
+                            console.log('지도에 마커 추가 중...');
+                            
+                            // 지도 객체 확인
+                            if (!mapInstance) {
+                                console.log('지도 객체가 없어 다시 초기화합니다');
+                                mapInstance = initializeMap('map');
+                                if (!mapInstance) {
+                                    throw new Error('지도를 초기화할 수 없습니다');
+                                }
+                            }
+                            
+                            // 맵 크기 재조정 (Leaflet 버그 해결)
+                            if (mapInstance) {
+                                console.log('마커 추가 전 지도 크기 재조정');
+                                mapInstance.invalidateSize(true);
+                            }
+                            
+                            peers.forEach(peer => {
+                                if (peer.latitude && peer.longitude) {
+                                    try {
+                                        console.log(`마커 추가: ${peer.ip} (${peer.latitude}, ${peer.longitude})`);
+                                        const marker = L.marker([peer.latitude, peer.longitude])
+                                            .bindPopup(`IP: ${peer.ip}<br>Country: ${peer.country}<br>City: ${peer.city}`);
+                                        marker.addTo(mapInstance);
+                                        markers.push(marker);
+                                    } catch (err) {
+                                        console.error('마커 추가 오류:', err);
+                                    }
+                                }
+                            });
 
-            if (type === 0x69 /* i - integer */) {
-                let i = index + 1; 
-                while (bytes[i] !== 0x65 /* e */) {
-                    if (i >= bytes.length) throw new Error("Bencode: 정수 'e' 없음");
-                    i++;
-                }
-                return i + 1; 
-            } else if (type === 0x6C /* l - list */ || type === 0x64 /* d - dictionary */) {
-                let i = index + 1; 
-                const endChar = 0x65; /* e */
-                
-                while (bytes[i] !== endChar) {
-                    if (i >= bytes.length) throw new Error(`Bencode: ${type === 0x6C ? '리스트' : '딕셔너리'} 'e' 없음`);
-                    i = getEndOfBencodedItem(bytes, i); 
-                    if (type === 0x64 /* d */) { 
-                        if (i >= bytes.length && bytes[i] !== endChar) throw new Error("Bencode: 딕셔너리 'e' 앞 값 예상");
-                         if (bytes[i] === endChar) break; 
-                        i = getEndOfBencodedItem(bytes, i);
+                            if (markers.length > 0) {
+                                try {
+                                    const group = new L.featureGroup(markers);
+                                    mapInstance.fitBounds(group.getBounds().pad(0.1));
+                                    console.log('지도 경계 조정 완료');
+                                } catch (err) {
+                                    console.error('지도 경계 조정 오류:', err);
+                                }
+                            }
+                        }
+                    } catch (error) {
+                        console.error('Error:', error);
+                        setErrorMessage(error.message);
+                    } finally {
+                        setIsLoading(false);
+                        document.getElementById('loading').style.display = 'none';
+                        document.getElementById('mapLoading').style.display = 'none';
+                        
+                        // 맵 갱신
+                        if (mapInstance) {
+                            console.log('검색 완료 후 지도 갱신');
+                            mapInstance.invalidateSize(true);
+                        }
                     }
                 }
-                return i + 1; 
-            } else if (type >= 0x30 /* 0 */ && type <= 0x39 /* 9 */) { // string
-                let colonIndex = index;
-                while (bytes[colonIndex] !== 0x3A /* : */) {
-                    if (colonIndex >= bytes.length) throw new Error("Bencode: 문자열 콜론 없음 (getEndOfBencodedItem)");
-                    colonIndex++;
+
+                // torrent 파일 업로드 핸들러
+                async function handleTorrentFileSelect(event) {
+                    const file = event.target.files[0];
+                    const selectedFileNameInfoSpan = document.getElementById('selectedFileNameInfo');
+
+                    if (!file) {
+                        selectedFileNameInfoSpan.textContent = '선택된 파일 없음';
+                        setInfoHash(''); // 파일 선택 취소 시 InfoHash 필드도 초기화
+                        return;
+                    }
+
+                    selectedFileNameInfoSpan.textContent = `처리 중: ${file.name}`;
+                    setInfoHash(''); // 새 파일 처리 시작 시 InfoHash 필드 초기화
+
+                    const reader = new FileReader();
+                    reader.onload = async function(e) {
+                        try {
+                            const torrentBytes = new Uint8Array(e.target.result);
+                            const infoDictBytes = extractInfoDictionaryBytes(torrentBytes);
+                            if (!infoDictBytes) {
+                                alert("'.torrent' 파일에서 'info' 딕셔너리를 찾을 수 없습니다.");
+                                selectedFileNameInfoSpan.textContent = `오류: ${file.name} (잘못된 파일 형식)`;
+                                return;
+                            }
+
+                            const hashBuffer = await crypto.subtle.digest('SHA-1', infoDictBytes);
+                            const hashArray = Array.from(new Uint8Array(hashBuffer));
+                            const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('').toUpperCase();
+                            
+                            setInfoHash(hashHex);
+                            selectedFileNameInfoSpan.textContent = `추출 완료: ${file.name}`;
+                        } catch (error) {
+                            console.error('Error processing torrent file:', error);
+                            selectedFileNameInfoSpan.textContent = `오류: ${file.name} (${error.message})`;
+                        }
+                    };
+                    reader.readAsArrayBuffer(file);
                 }
-                const lengthStrUtf8 = bytes.slice(index, colonIndex);
-                const lengthStr = new TextDecoder().decode(lengthStrUtf8);
-                const length = parseInt(lengthStr, 10);
-                if (isNaN(length)) throw new Error("Bencode: 잘못된 문자열 길이 (getEndOfBencodedItem)");
+
+                // 컴포넌트 마운트 시 초기화
+                useEffect(() => {
+                    console.log('TorrentTrackerApp 컴포넌트 마운트');
+                    
+                    // 지도 초기화 (전역 함수 대신 직접 초기화)
+                    const initMap = () => {
+                        console.log('지도 요소 생성 확인 중...');
+                        const mapElement = document.getElementById('map');
+                        
+                        if (!mapElement) {
+                            console.log('지도 요소가 아직 없음, 0.5초 후 다시 시도');
+                            setTimeout(initMap, 500);
+                            return;
+                        }
+                        
+                        console.log('지도 요소 발견, 초기화 시작');
+                        mapInstance = L.map('map', {
+                            center: [0, 0],
+                            zoom: 2
+                        });
+                        
+                        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                            attribution: '© OpenStreetMap contributors',
+                            maxZoom: 19
+                        }).addTo(mapInstance);
+                        
+                        setMapReady(true);
+                        console.log('리액트 컴포넌트에서 지도 초기화 완료');
+                        
+                        // 일정 시간 후 강제로 크기 조정
+                        setTimeout(() => {
+                            if (mapInstance) {
+                                console.log('지도 크기 강제 조정');
+                                mapInstance.invalidateSize(true);
+                            }
+                        }, 1000);
+                    };
+                    
+                    // 컴포넌트 마운트 후 약간 지연시켜 지도 초기화
+                    setTimeout(initMap, 500);
+                    
+                    // torrent 파일 업로드 이벤트 리스너
+                    const torrentFileInput = document.getElementById('torrentFile');
+                    if (torrentFileInput) {
+                        torrentFileInput.addEventListener('change', handleTorrentFileSelect, false);
+                    }
+                    
+                    // 컴포넌트 언마운트 시 정리
+                    return () => {
+                        console.log('TorrentTrackerApp 컴포넌트 언마운트');
+                        
+                        // 이벤트 리스너 제거
+                        if (torrentFileInput) {
+                            torrentFileInput.removeEventListener('change', handleTorrentFileSelect);
+                        }
+                        
+                        // 지도 제거
+                        if (mapInstance) {
+                            mapInstance.remove();
+                            mapInstance = null;
+                        }
+                    };
+                }, []);
+
+                // 헤더 컴포넌트
+                const Header = e('div', { className: 'container mt-4' },
+                    e('div', { className: 'row align-items-center' },
+                        e('div', { className: 'col-md-6' },
+                            e('h1', { className: 'mb-2' }, 'Torrent Peer Tracker')
+                        ),
+                        e('div', { className: 'col-md-6 text-end' },
+                            e('div', { className: 'text-gray-600 mb-2' }, 
+                                `Logged in as: ${user.email.split('@')[0]}`
+                            ),
+                            e('button', {
+                                onClick: handleLogout,
+                                className: 'btn btn-outline-secondary btn-sm'
+                            }, [
+                                e(lucide.LogOut, { className: 'me-1' }),
+                                'Logout'
+                            ])
+                        )
+                    )
+                );
+
+                // 검색 양식 컴포넌트
+                const SearchForm = e('div', { className: 'container mt-3' },
+                    e('div', { className: 'row mb-3' },
+                        e('div', { className: 'col-md-12' },
+                            e('label', { htmlFor: 'torrentFile', className: 'form-label' }, 
+                                'torrent 파일에서 Info Hash 추출:'
+                            ),
+                            e('div', { className: 'input-group' },
+                                e('input', {
+                                    className: 'form-control',
+                                    type: 'file',
+                                    id: 'torrentFile',
+                                    accept: '.torrent'
+                                })
+                            ),
+                            e('span', { id: 'selectedFileNameInfo', className: 'form-text' })
+                        )
+                    ),
+                    
+                    e('div', { className: 'row' },
+                        e('div', { className: 'col-md-6' },
+                            e('div', { className: 'input-group mb-3' },
+                                e('input', {
+                                    type: 'text',
+                                    id: 'infoHash',
+                                    className: 'form-control',
+                                    placeholder: 'Enter Info Hash',
+                                    value: infoHash,
+                                    onChange: (e) => setInfoHash(e.target.value)
+                                }),
+                                e('button', {
+                                    className: 'btn btn-primary',
+                                    onClick: searchPeers,
+                                    disabled: isLoading
+                                }, isLoading ? 
+                                    [e(lucide.RefreshCw), ' Searching...'] : 
+                                    [e(lucide.Search), ' Search']
+                                )
+                            )
+                        )
+                    ),
+                    
+                    e('div', { className: 'loading', id: 'loading' },
+                        e('div', { className: 'd-flex align-items-center' },
+                            e('strong', {}, 'Searching for peers...'),
+                            e('div', { className: 'spinner-border ms-auto', role: 'status', 'aria-hidden': 'true' })
+                        )
+                    )
+                );
                 
-                const strEnd = colonIndex + 1 + length;
-                if (strEnd > bytes.length) throw new Error("Bencode: 문자열 길이 초과 (getEndOfBencodedItem)");
-                return strEnd;
+                // 결과 컴포넌트
+                const ResultsSection = e('div', { className: 'container' },
+                    // 지도 컨테이너
+                    e('div', { className: 'map-container' },
+                        e('div', { className: 'map-loading', id: 'mapLoading' },
+                            e('div', { className: 'd-flex align-items-center' },
+                                e(lucide.RefreshCw, { className: 'me-2' }),
+                                e('span', {}, '지도 로딩 중...')
+                            )
+                        ),
+                        e('h3', { className: 'mt-3 mb-2' }, 'Peer 위치 지도'),
+                        e('div', { id: 'map', style: { height: '500px', width: '100%' } })
+                    ),
+                    
+                    // 피어 목록 테이블
+                    e('div', { className: 'mt-4' },
+                        e('h3', {}, 'Peer List'),
+                        e('div', { className: 'table-responsive' },
+                            e('table', { className: 'table table-striped' },
+                                e('thead', {},
+                                    e('tr', {},
+                                        e('th', {}, 'IP Address'),
+                                        e('th', {}, 'Port'),
+                                        e('th', {}, 'Country'),
+                                        e('th', {}, 'City')
+                                    )
+                                ),
+                                e('tbody', { id: 'peerList' },
+                                    peerList.length > 0 ? 
+                                        peerList.map((peer, idx) => 
+                                            e('tr', { key: idx },
+                                                e('td', {},
+                                                    e('a', {
+                                                        href: `https://iknowwhatyoudownload.com/en/peer/?ip=${peer.ip}`,
+                                                        target: '_blank',
+                                                        rel: 'noopener noreferrer'
+                                                    }, peer.ip)
+                                                ),
+                                                e('td', {}, peer.port),
+                                                e('td', {}, peer.country),
+                                                e('td', {}, peer.city)
+                                            )
+                                        ) :
+                                        e('tr', {},
+                                            e('td', { colSpan: 4, className: 'text-center' + (errorMessage ? ' text-danger' : '') },
+                                                errorMessage || 'No results yet'
+                                            )
+                                        )
+                                )
+                            )
+                        )
+                    )
+                );
+                
+                // 전체 레이아웃 렌더링
+                return e('div', {},
+                    Header,
+                    SearchForm,
+                    ResultsSection
+                );
             }
-            throw new Error(`Bencode: 잘못된 타입 문자 '${String.fromCharCode(type)}' (0x${type.toString(16)}) at index ${index}`);
+            
+            // 로그인 페이지 컴포넌트
+            function LoginPage({ onLogin }) {
+                const [userId, setUserId] = useState('');
+                const [password, setPassword] = useState('');
+                const [loading, setLoading] = useState(false);
+                const [error, setError] = useState(null);
+                
+                const handleLogin = async (e) => {
+                    e.preventDefault();
+                    setError(null);
+                    setLoading(true);
+                    
+                    try {
+                        // supabaseClient 로 로그인 시도
+                        if (!window.supabaseClient || !window.supabaseClient.signInWithUserId) {
+                            throw new Error('Supabase 클라이언트를 찾을 수 없습니다. 페이지를 새로고침해 보세요.');
+                        }
+                        
+                        console.log(`로그인 시도: ${userId}`);
+                        const { data, error } = await window.supabaseClient.signInWithUserId(userId, password);
+                        
+                        if (error) {
+                            console.error('Login error:', error);
+                            setError(error.message);
+                        } else {
+                            console.log('Login successful:', data.user.email);
+                            
+                            // 부모 컴포넌트에 로그인 성공 알림
+                            onLogin(data.user);
+                        }
+                    } catch (err) {
+                        console.error('Unexpected error:', err);
+                        setError('로그인 처리 중 오류가 발생했습니다: ' + err.message);
+                    } finally {
+                        setLoading(false);
+                    }
+                };
+                
+                return e('div', { className: 'min-h-screen flex items-center justify-center bg-gray-100' },
+                    e('div', { className: 'bg-white p-8 rounded-lg shadow-lg max-w-md w-full' },
+                        e('div', { className: 'flex justify-center mb-6' },
+                            e('div', { className: 'bg-blue-800 p-3 rounded-full' },
+                                e(lucide.Shield, { className: 'h-10 w-10 text-white' })
+                            )
+                        ),
+                        
+                        e('h1', { className: 'text-2xl font-bold text-center text-gray-800 mb-6' },
+                            '토렌트 트래커 서비스'
+                        ),
+                        
+                        error && e('div', { className: 'bg-red-50 border border-red-200 rounded-md p-4 mb-6 flex items-start' },
+                            e(lucide.AlertCircle, { className: 'h-5 w-5 text-red-500 mr-2 mt-0.5' }),
+                            e('p', { className: 'text-sm text-red-600' }, error)
+                        ),
+                        
+                        e('form', { onSubmit: handleLogin },
+                            e('div', { className: 'mb-4' },
+                                e('label', { htmlFor: 'userId', className: 'block text-sm font-medium text-gray-700 mb-1' },
+                                    '사용자 ID'
+                                ),
+                                e('div', { className: 'relative' },
+                                    e('div', { className: 'absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none' },
+                                        e(lucide.User, { className: 'h-5 w-5 text-gray-400' })
+                                    ),
+                                    e('input', {
+                                        id: 'userId',
+                                        name: 'userId',
+                                        type: 'text',
+                                        required: true,
+                                        value: userId,
+                                        onChange: (e) => setUserId(e.target.value),
+                                        className: 'pl-10 w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500',
+                                        placeholder: '관리자 ID 입력'
+                                    })
+                                )
+                            ),
+                            
+                            e('div', { className: 'mb-6' },
+                                e('label', { htmlFor: 'password', className: 'block text-sm font-medium text-gray-700 mb-1' },
+                                    '비밀번호'
+                                ),
+                                e('div', { className: 'relative' },
+                                    e('div', { className: 'absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none' },
+                                        e(lucide.Lock, { className: 'h-5 w-5 text-gray-400' })
+                                    ),
+                                    e('input', {
+                                        id: 'password',
+                                        name: 'password',
+                                        type: 'password',
+                                        required: true,
+                                        value: password,
+                                        onChange: (e) => setPassword(e.target.value),
+                                        className: 'pl-10 w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500',
+                                        placeholder: '비밀번호 입력'
+                                    })
+                                )
+                            ),
+                            
+                            e('button', {
+                                type: 'submit',
+                                disabled: loading,
+                                className: 'w-full py-2 px-4 border border-transparent rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50'
+                            }, loading ? '로그인 중...' : '로그인')
+                        ),
+                        
+                        e('div', { className: 'mt-6 text-center text-sm text-gray-500' },
+                            e('p', {}, '이 서비스는 인증된 직원만 접근 가능합니다.'),
+                            e('p', { className: 'mt-1' }, 'ID가 없는 경우 관리자에게 문의하세요.'),
+                            e('p', { className: 'mt-4 text-gray-400 text-xs' }, '테스트 계정: admin / admin123')
+                        )
+                    )
+                );
+            }
+            
+            // 앱 컨테이너 컴포넌트
+            function AppContainer() {
+                const [user, setUser] = useState(null);
+                const [loading, setLoading] = useState(true);
+                
+                // 로그인 상태 확인
+                useEffect(() => {
+                    async function checkAuth() {
+                        try {
+                            if (!window.supabaseClient || !window.supabaseClient.checkUserSession) {
+                                console.warn('Supabase 클라이언트가 초기화되지 않았습니다.');
+                                setUser(null);
+                                setLoading(false);
+                                return;
+                            }
+
+                            // 세션 확인 요청
+                            console.log('사용자 세션 확인 중...');
+                            const currentUser = await window.supabaseClient.checkUserSession();
+                            console.log('세션 확인 결과:', currentUser ? '로그인됨' : '로그인되지 않음');
+                            
+                            if (currentUser) {
+                                console.log('인증된 사용자:', currentUser.email);
+                            }
+                            
+                            setUser(currentUser);
+                        } catch (error) {
+                            console.error('세션 확인 오류:', error);
+                            setUser(null);
+                        } finally {
+                            setLoading(false);
+                        }
+                    }
+                    
+                    checkAuth();
+                }, []);
+                
+                // 로그인 핸들러
+                const handleLogin = (user) => {
+                    setUser(user);
+                };
+                
+                // 로그아웃 핸들러
+                const handleLogout = async () => {
+                    try {
+                        if (window.supabaseClient && window.supabaseClient.signOut) {
+                            await window.supabaseClient.signOut();
+                        }
+                        localStorage.removeItem('supabase.auth.token');
+                        setUser(null);
+                    } catch (error) {
+                        console.error('Error signing out:', error);
+                    }
+                };
+                
+                // 로딩 중 표시
+                if (loading) {
+                    return e('div', { className: 'flex justify-center items-center h-screen' },
+                        e('div', { className: 'spinner-border text-primary', role: 'status' },
+                            e('span', { className: 'visually-hidden' }, 'Loading...')
+                        )
+                    );
+                }
+                
+                // 로그인 여부에 따라 컴포넌트 분기
+                return user
+                    ? e(TorrentTrackerApp, { user, onLogout: handleLogout })
+                    : e(LoginPage, { onLogin: handleLogin });
+            }
+            
+            // DOM에 리액트 앱 렌더링
+            const root = document.getElementById('root');
+            const reactRoot = ReactDOM.createRoot(root);
+            reactRoot.render(e(AppContainer));
         }
-
-        // torrent 바이트 배열에서 'info' 딕셔너리의 원본 Bencoded 바이트를 추출
-        function extractInfoDictionaryBytes(torrentBytes) {
-            if (torrentBytes[0] !== 0x64 /* d */) throw new Error("Torrent 파일은 딕셔너리로 시작해야 합니다.");
-            let currentIndex = 1; // 첫 'd' 스킵
-            let infoDictSlice = null;
-
-            while (currentIndex < torrentBytes.length && torrentBytes[currentIndex] !== 0x65 /* e */) {
-                // 키 파싱 (문자열이어야 함)
-                const keyResult = readBencodedString(torrentBytes, currentIndex);
-                currentIndex = keyResult.endIndex;
-
-                // 값의 시작 위치와 끝 위치 찾기
-                const valueStartIndex = currentIndex;
-                currentIndex = getEndOfBencodedItem(torrentBytes, valueStartIndex);
-                
-                if (keyResult.value === 'info') {
-                    infoDictSlice = torrentBytes.slice(valueStartIndex, currentIndex);
-                    break; 
+        
+        // torrent 파일에서 info 딕셔너리 추출 함수
+        function extractInfoDictionaryBytes(bytes) {
+            const decoder = new TextDecoder();
+            const content = decoder.decode(bytes);
+            
+            // 'info' 딕셔너리 위치 찾기
+            const infoStart = content.indexOf('4:info');
+            if (infoStart === -1) return null;
+            
+            // 'info' 바로 뒤의 'd' 문자 위치 찾기
+            const dictStart = content.indexOf('d', infoStart + 6);
+            if (dictStart === -1) return null;
+            
+            // Bencode 딕셔너리 구문 분석
+            let depth = 1;
+            let i = dictStart + 1;
+            
+            while (depth > 0 && i < content.length) {
+                if (content[i] === 'd' || content[i] === 'l') {
+                    depth++;
+                } else if (content[i] === 'e') {
+                    depth--;
                 }
+                i++;
             }
-
-            if (!infoDictSlice) throw new Error("'info' 딕셔너리를 찾지 못했습니다.");
-            return infoDictSlice;
+            
+            if (depth !== 0) return null;
+            
+            // 딕셔너리 범위를 바이트 배열로 변환
+            const dictBytes = bytes.slice(dictStart, i);
+            return dictBytes;
         }
     </script>
 </body>

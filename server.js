@@ -7,12 +7,75 @@ const geoip = require('geoip-lite');
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
+const { createClient } = require('@supabase/supabase-js');
+// .env.local 파일에서 환경 변수 로드
+require('dotenv').config({ path: '.env.local' });
 
 const app = express();
-const port = 3001;
+const port = process.env.PORT || 3001;
+
+// Supabase 클라이언트 초기화
+let supabase = null;
+const supabaseUrl = process.env.SUPABASE_URL;
+const supabaseKey = process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_KEY;
+
+if (supabaseUrl && supabaseKey) {
+  try {
+    supabase = createClient(supabaseUrl, supabaseKey);
+    console.log('Supabase 클라이언트가 성공적으로 초기화되었습니다.');
+  } catch (error) {
+    console.error('Supabase 클라이언트 초기화 오류:', error);
+  }
+} else {
+  console.warn('Supabase URL 또는 키가 제공되지 않아 인증 기능이 비활성화되었습니다.');
+  if (!supabaseUrl) console.warn('SUPABASE_URL이 설정되지 않았습니다.');
+  if (!supabaseKey) console.warn('SUPABASE_KEY 또는 SUPABASE_SERVICE_KEY가 설정되지 않았습니다.');
+}
 
 app.use(cors());
 app.use(bodyParser.json());
+
+// JWT 인증 미들웨어
+const authenticateUser = async (req, res, next) => {
+  // Supabase 클라이언트가 없을 경우 인증 우회
+  if (!supabase) {
+    console.warn('인증이 비활성화됨: Supabase 클라이언트가 초기화되지 않았습니다.');
+    req.user = { id: 'anonymous', email: 'anonymous@torrentpeertrackertemp.com' };
+    return next();
+  }
+
+  const authHeader = req.headers.authorization;
+  
+  // 테스트 토큰 처리
+  if (authHeader && authHeader.startsWith('Bearer test-token')) {
+    console.log('테스트 토큰 사용 감지됨, 테스트 사용자로 인증합니다.');
+    req.user = { id: 'admin-id', email: 'admin@torrentpeertrackertemp.com' };
+    return next();
+  }
+  
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ error: '인증 토큰이 필요합니다' });
+  }
+  
+  const token = authHeader.split(' ')[1];
+  
+  try {
+    console.log('토큰 검증 시도...');
+    const { data, error } = await supabase.auth.getUser(token);
+    
+    if (error || !data.user) {
+      console.error('토큰 검증 실패:', error?.message || '사용자 정보 없음');
+      return res.status(401).json({ error: '유효하지 않은 인증 토큰입니다' });
+    }
+    
+    console.log('토큰 검증 성공:', data.user.email);
+    req.user = data.user;
+    next();
+  } catch (error) {
+    console.error('Token verification error:', error);
+    return res.status(401).json({ error: '인증 오류가 발생했습니다' });
+  }
+};
 
 // DHT 인스턴스 생성
 const dht = new DHT();
@@ -68,7 +131,8 @@ function clearPeersFile() {
   }
 }
 
-app.post('/api/search', async (req, res) => {
+// API 요청에 인증 미들웨어 적용
+app.post('/api/search', authenticateUser, async (req, res) => {
   console.log('Received search request:', req.body);
   const { infoHash } = req.body;
   
@@ -224,6 +288,58 @@ app.post('/api/search', async (req, res) => {
     console.error('Error in search:', error);
     res.status(500).json({ error: 'Failed to fetch peers', details: error.message });
   }
+});
+
+// 인증 엔드포인트 - 테스트용 (실제로는 Supabase가 직접 처리)
+app.post('/api/verify-session', async (req, res) => {
+  const { token } = req.body;
+  
+  // 테스트 토큰 처리
+  if (token && token.startsWith('test-token')) {
+    console.log('테스트 토큰으로 세션 확인');
+    return res.json({ 
+      valid: true, 
+      user: { id: 'admin-id', email: 'admin@torrentpeertrackertemp.com' } 
+    });
+  }
+  
+  // Supabase 클라이언트가 없을 경우 인증 우회
+  if (!supabase) {
+    console.warn('인증이 비활성화됨: Supabase 클라이언트가 초기화되지 않았습니다.');
+    return res.json({ 
+      valid: true, 
+      user: { id: 'anonymous', email: 'anonymous@torrentpeertrackertemp.com' } 
+    });
+  }
+  
+  if (!token) {
+    return res.status(400).json({ error: '토큰이 필요합니다' });
+  }
+  
+  try {
+    console.log('토큰으로 세션 검증 시도:', token.substring(0, 10) + '...');
+    const { data, error } = await supabase.auth.getUser(token);
+    
+    if (error || !data.user) {
+      console.error('세션 검증 실패:', error?.message || '사용자 정보 없음');
+      return res.status(401).json({ valid: false, error: '유효하지 않은 세션입니다' });
+    }
+    
+    console.log('세션 검증 성공:', data.user.email);
+    return res.json({ valid: true, user: data.user });
+  } catch (error) {
+    console.error('Session verification error:', error);
+    return res.status(500).json({ valid: false, error: '세션 검증 중 오류가 발생했습니다' });
+  }
+});
+
+// 서버 설정 라우트 - 클라이언트에게 필요한 환경 변수 제공
+app.get('/api/config', (req, res) => {
+  // 클라이언트에게 필요한 설정만 전달 (민감한 정보는 제외)
+  res.json({
+    supabaseUrl: process.env.SUPABASE_URL || '',
+    supabaseKey: process.env.SUPABASE_KEY || '',  // 클라이언트용 anon 키만 전달
+  });
 });
 
 // favicon.ico 요청 처리
