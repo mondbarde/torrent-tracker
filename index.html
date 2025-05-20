@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Torrent Peer Tracker</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css" />
+    <style>
+        #map {
+            height: 500px;
+            width: 100%;
+            margin-top: 20px;
+        }
+        .loading {
+            display: none;
+            margin: 20px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container mt-5">
+        <h1 class="mb-4">Torrent Peer Tracker</h1>
+        
+        <div class="row">
+            <div class="col-md-6">
+                <div class="input-group mb-3">
+                    <input type="text" id="infoHash" class="form-control" placeholder="Enter Info Hash">
+                    <button class="btn btn-primary" onclick="searchPeers()">Search</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="loading" id="loading">
+            <div class="d-flex align-items-center">
+                <strong>Searching for peers...</strong>
+                <div class="spinner-border ms-auto" role="status" aria-hidden="true"></div>
+            </div>
+        </div>
+
+        <div id="map"></div>
+
+        <div class="mt-4">
+            <h3>Peer List</h3>
+            <div class="table-responsive">
+                <table class="table table-striped">
+                    <thead>
+                        <tr>
+                            <th>IP Address</th>
+                            <th>Port</th>
+                            <th>Country</th>
+                            <th>City</th>
+                        </tr>
+                    </thead>
+                    <tbody id="peerList">
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
+    <script>
+        let map = L.map('map').setView([0, 0], 2);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© OpenStreetMap contributors'
+        }).addTo(map);
+
+        let markers = [];
+
+        async function searchPeers() {
+            const infoHash = document.getElementById('infoHash').value.trim();
+            if (!infoHash) {
+                alert('Please enter an info hash');
+                return;
+            }
+
+            // Clear previous results
+            markers.forEach(marker => map.removeLayer(marker));
+            markers = [];
+            document.getElementById('peerList').innerHTML = '';
+            document.getElementById('loading').style.display = 'block';
+
+            try {
+                console.log('Sending request to server...');
+                const response = await fetch('http://localhost:3001/api/search', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ infoHash })
+                });
+
+                console.log('Response status:', response.status);
+                console.log('Response headers:', Object.fromEntries(response.headers.entries()));
+
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    console.error('Error response:', errorText);
+                    throw new Error(`HTTP error! status: ${response.status}, message: ${errorText}`);
+                }
+
+                const peers = await response.json();
+                console.log('Received peers:', peers);
+                console.log('Peers type:', typeof peers);
+                console.log('Is array?', Array.isArray(peers));
+                console.log('Peers length:', peers.length);
+                
+                if (!Array.isArray(peers)) {
+                    console.error('Invalid response format:', peers);
+                    document.getElementById('peerList').innerHTML = '<tr><td colspan="4" class="text-center text-danger">Invalid response format from server</td></tr>';
+                    document.getElementById('loading').style.display = 'none';
+                    return;
+                }
+                
+                if (peers.length === 0) {
+                    console.log('No peers found');
+                    document.getElementById('peerList').innerHTML = '<tr><td colspan="4" class="text-center">No peers found</td></tr>';
+                    document.getElementById('loading').style.display = 'none';
+                    return;
+                }
+
+                // Update table
+                const peerList = document.getElementById('peerList');
+                peerList.innerHTML = peers.map(peer => `
+                    <tr>
+                        <td>${peer.ip}</td>
+                        <td>${peer.port}</td>
+                        <td>${peer.country}</td>
+                        <td>${peer.city}</td>
+                    </tr>
+                `).join('');
+
+                // Update map
+                peers.forEach(peer => {
+                    if (peer.latitude && peer.longitude) {
+                        const marker = L.marker([peer.latitude, peer.longitude])
+                            .bindPopup(`IP: ${peer.ip}<br>Country: ${peer.country}<br>City: ${peer.city}`);
+                        marker.addTo(map);
+                        markers.push(marker);
+                    }
+                });
+
+                if (markers.length > 0) {
+                    const group = new L.featureGroup(markers);
+                    map.fitBounds(group.getBounds().pad(0.1));
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                document.getElementById('peerList').innerHTML = `<tr><td colspan="4" class="text-center text-danger">Error: ${error.message}</td></tr>`;
+            } finally {
+                document.getElementById('loading').style.display = 'none';
+            }
+        }
+    </script>
+</body>
+</html> 
